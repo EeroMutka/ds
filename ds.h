@@ -126,8 +126,9 @@ struct DS_Arena : DS_Allocator
 
 	inline const char* CloneStr(const char* src)
 	{
-		char* result = PushUninitialized(strlen(src) + 1, 1);
-		strcpy(result, src);
+		size_t len = strlen(src);
+		char* result = PushUninitialized(len + 1, 1);
+		memcpy(result, src, len + 1);
 		return result;
 	}
 };
@@ -251,19 +252,22 @@ struct DS_StringView
 
 	intptr_t CodepointCount();
 	
-	// returns `Size` if not found
-	intptr_t Find(DS_StringView other);
+	// returns `size` if not found
+	intptr_t Find(DS_StringView other, intptr_t start_from = 0);
 
-	// returns `Size` if not found
-	intptr_t RFind(DS_StringView other);
+	// returns `size` if not found
+	intptr_t RFind(DS_StringView other, intptr_t start_from = INTPTR_MAX);
 	
 	// returns `Size` if not found
-	intptr_t FindChar(char other);
+	intptr_t FindChar(char other, intptr_t start_from = 0);
 
 	// returns `Size` if not found
-	intptr_t RFindChar(char other);
+	intptr_t RFindChar(char other, intptr_t start_from = INTPTR_MAX);
 	
-	DS_StringView Substr(intptr_t from, intptr_t to = INTPTR_MAX);
+	// Find "split_by", set this string to the string after `split_by`, return the string before `split_by`
+	DS_StringView Split(DS_StringView split_by);
+
+	DS_StringView Slice(intptr_t from, intptr_t to = INTPTR_MAX);
 
 	DS_String Clone(DS_Arena* arena) const;
 
