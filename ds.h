@@ -1,4 +1,4 @@
-﻿// ds.h - minimal data structures
+﻿// ds.h - minimal data structures (https://github.com/EeroMutka/ds)
 // Written by Eero Mutka
 //
 // - Dynamic array
