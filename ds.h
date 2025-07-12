@@ -229,13 +229,11 @@ struct DS_Slice {
 
 // -- String ------------------------------------------------------------------
 
-// For passing a DS_StringView into a printf-string with %.*s
+// For passing a DS_String into a printf-string with %.*s
 #define DS_StrVArg(STR)  STR.Size, STR.Data
 
-struct DS_String;
-
-// Non-null-terminated view to a string
-struct DS_StringView
+// A view-based string. May or may not be null-terminated.
+struct DS_String
 {
 	char* Data;
 	intptr_t Size;
@@ -253,10 +251,10 @@ struct DS_StringView
 	intptr_t CodepointCount();
 	
 	// returns `size` if not found
-	intptr_t Find(DS_StringView other, intptr_t start_from = 0);
+	intptr_t Find(DS_String other, intptr_t start_from = 0);
 
 	// returns `size` if not found
-	intptr_t RFind(DS_StringView other, intptr_t start_from = INTPTR_MAX);
+	intptr_t RFind(DS_String other, intptr_t start_from = INTPTR_MAX);
 	
 	// returns `Size` if not found
 	intptr_t FindChar(char other, intptr_t start_from = 0);
@@ -265,18 +263,19 @@ struct DS_StringView
 	intptr_t RFindChar(char other, intptr_t start_from = INTPTR_MAX);
 	
 	// Find "split_by", set this string to the string after `split_by`, return the string before `split_by`
-	DS_StringView Split(DS_StringView split_by);
+	DS_String Split(DS_String split_by);
 
-	DS_StringView Slice(intptr_t from, intptr_t to = INTPTR_MAX);
+	DS_String Slice(intptr_t from, intptr_t to = INTPTR_MAX);
 
+	// Clone() returns a null-terminated string
 	DS_String Clone(DS_Arena* arena) const;
 
 	char* ToCStr(DS_Arena* arena) const;
 	
 	// ------------------------------------------------------------------------
 
-	bool operator==(DS_StringView other) { return Size == other.Size && memcmp(Data, other.Data, Size) == 0; }
-	bool operator!=(DS_StringView other) { return Size != other.Size || memcmp(Data, other.Data, Size) == 0; }
+	bool operator==(DS_String other) { return Size == other.Size && memcmp(Data, other.Data, Size) == 0; }
+	bool operator!=(DS_String other) { return Size != other.Size || memcmp(Data, other.Data, Size) == 0; }
 	bool operator==(const char* other) {
 		intptr_t other_len = other ? strlen(other) : INTPTR_MIN;
 		return Size == other_len && memcmp(Data, other, Size) == 0;
@@ -288,41 +287,19 @@ struct DS_StringView
 
 	operator DS_Slice<char> () const { return DS_Slice<char>(Data, (int32_t)Size); }
 
-	DS_StringView() : Data(0), Size(0) {}
+	DS_String() : Data(0), Size(0) {}
 
-	DS_StringView(const char* data, intptr_t size) : Data((char*)data), Size(size) {}
+	DS_String(const char* data, intptr_t size) : Data((char*)data), Size(size) {}
 
-	// Implicitly construct from a string literal without an internal "strlen" call.
-	// To construct from a non-literal C-string, call DS_Str(). It's a separate function and not a constructor to avoid overload-conflict.
-	template <size_t SIZE>
-	DS_StringView(const char (&c_str)[SIZE]) : Data((char*)c_str), Size(SIZE - 1) {}
+	// Note: prefer using the form "some_string"_ds when using string literals as that internally avoids this call to strlen()
+	DS_String(const char* str) : Data((char*)str), Size(strlen(str)) {}
 };
 
-// Null-terminated view to a string
-struct DS_String : public DS_StringView
+static inline DS_String operator ""_ds(const char* data, size_t size)
 {
-	DS_String() : DS_StringView() {}
-
-	DS_String(const char* data, intptr_t size) : DS_StringView(data, size) {}
-	
-	// Implicitly construct from a string literal without an internal "strlen" call.
-	// To construct from a non-literal C-string, call DS_Str(). It's a separate function and not a constructor to avoid overload-conflict.
-	template <size_t SIZE>
-	DS_String(const char (&c_str)[SIZE]) : DS_StringView((char*)c_str, SIZE - 1) {}
-
-	// As C-string
-	inline char* CStr() const { return Data; }
-};
-
-static inline DS_String DS_Str(const char* c_str) {
-	return c_str ? DS_String(c_str, (intptr_t)strlen(c_str)) : DS_String();
+	return DS_String(data, size);
 }
 
-static inline DS_String DS_Str(DS_Arena* arena, const char* c_str) {
-	return c_str ? DS_String(c_str, (intptr_t)strlen(c_str)).Clone(arena) : DS_String();
-}
-
-// Null-terminated owned dynamic string
 struct DS_DynamicString : public DS_String
 {
 	intptr_t Capacity;
@@ -340,8 +317,11 @@ struct DS_DynamicString : public DS_String
 
 	inline void Reserve(intptr_t reserve_size);
 	
-	inline void Add(DS_StringView str);
+	inline void Add(DS_String str);
 
+	// DS_DynamicString is always null-terminated.
+	inline char* CStr() const { return Data; }
+	
 #ifndef DS_NO_PRINTF
 	inline void Addf(const char* fmt, ...);
 	inline void AddfVargs(const char* fmt, va_list args);
@@ -680,7 +660,7 @@ inline void DS_DynamicString::Reserve(intptr_t reserve_size)
 	}
 }
 
-inline void DS_DynamicString::Add(DS_StringView str)
+inline void DS_DynamicString::Add(DS_String str)
 {
 	Reserve(Size + str.Size + 1);
 	memcpy(Data + Size, str.Data, str.Size);

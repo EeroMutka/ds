@@ -55,19 +55,19 @@ static intptr_t DS_CodepointCount(char* str, intptr_t size)
 	return count;
 }
 
-uint32_t DS_StringView::NextCodepoint(intptr_t* offset) {
+uint32_t DS_String::NextCodepoint(intptr_t* offset) {
 	return DS_NextCodepoint(Data, Size, offset);
 }
 
-uint32_t DS_StringView::PrevCodepoint(intptr_t* offset) {
+uint32_t DS_String::PrevCodepoint(intptr_t* offset) {
 	return DS_PrevCodepoint(Data, Size, offset);
 }
 
-intptr_t DS_StringView::CodepointCount() {
+intptr_t DS_String::CodepointCount() {
 	return DS_CodepointCount(Data, Size);
 }
 
-intptr_t DS_StringView::Find(DS_StringView other, intptr_t start_from)
+intptr_t DS_String::Find(DS_String other, intptr_t start_from)
 {
 	DS_ASSERT(start_from >= 0 && start_from <= Size);
 	intptr_t result = Size;
@@ -86,7 +86,7 @@ intptr_t DS_StringView::Find(DS_StringView other, intptr_t start_from)
 	return result;
 }
 
-intptr_t DS_StringView::RFind(DS_StringView other, intptr_t start_from)
+intptr_t DS_String::RFind(DS_String other, intptr_t start_from)
 {
 	intptr_t result = Size;
 	if (other.Size <= Size)
@@ -103,7 +103,7 @@ intptr_t DS_StringView::RFind(DS_StringView other, intptr_t start_from)
 	return result;
 }
 
-intptr_t DS_StringView::FindChar(char other, intptr_t start_from)
+intptr_t DS_String::FindChar(char other, intptr_t start_from)
 {
 	DS_ASSERT(start_from >= 0 && start_from <= Size);
 	intptr_t result = Size;
@@ -119,7 +119,7 @@ intptr_t DS_StringView::FindChar(char other, intptr_t start_from)
 	return result;
 }
 
-intptr_t DS_StringView::RFindChar(char other, intptr_t start_from)
+intptr_t DS_String::RFindChar(char other, intptr_t start_from)
 {
 	intptr_t result = Size;
 	char* ptr = Data + (start_from >= Size ? Size : start_from) - 1;
@@ -133,26 +133,26 @@ intptr_t DS_StringView::RFindChar(char other, intptr_t start_from)
 	return result;
 }
 
-DS_StringView DS_StringView::Split(DS_StringView split_by)
+DS_String DS_String::Split(DS_String split_by)
 {
 	intptr_t offset = Find(split_by);
-	DS_StringView result = {Data, offset};
+	DS_String result = {Data, offset};
 	intptr_t advance = offset + split_by.Size > Size ? Size : offset + split_by.Size;
 	Data += advance;
 	Size -= advance;
 	return result;
 }
 
-DS_StringView DS_StringView::Slice(intptr_t from, intptr_t to)
+DS_String DS_String::Slice(intptr_t from, intptr_t to)
 {
 	if (to == INTPTR_MAX) to = Size;
 	DS_ASSERT(from >= 0);
 	DS_ASSERT(to <= Size);
 	DS_ASSERT(to >= from);
-	return DS_StringView(Data + from, to - from);
+	return DS_String(Data + from, to - from);
 }
 
-DS_String DS_StringView::Clone(DS_Arena* arena) const {
+DS_String DS_String::Clone(DS_Arena* arena) const {
 	DS_String result;
 	result.Data = arena->PushUninitialized(Size + 1);
 	result.Size = Size;
@@ -161,7 +161,7 @@ DS_String DS_StringView::Clone(DS_Arena* arena) const {
 	return result;
 }
 
-char* DS_StringView::ToCStr(DS_Arena* arena) const {
+char* DS_String::ToCStr(DS_Arena* arena) const {
 	return Clone(arena).CStr();
 }
 
