@@ -64,22 +64,12 @@ https://docs.microsoft.com/en-us/visualstudio/debugger/create-custom-views-of-na
 			</ArrayItems>
 		</Expand>
 	</Type>
-
-	<Type Name="DS_StringView">
-		<DisplayString>{Data,[size]s}</DisplayString>
-		<Expand>
-			<ArrayItems>
-				<Size>size</Size>
-				<ValuePointer>Data</ValuePointer>
-			</ArrayItems>
-		</Expand>
-	</Type>
 	
 	<Type Name="DS_String">
-		<DisplayString>{Data,[size]s}</DisplayString>
+		<DisplayString>{Data,[Size]s}</DisplayString>
 		<Expand>
 			<ArrayItems>
-				<Size>size</Size>
+				<Size>Size</Size>
 				<ValuePointer>Data</ValuePointer>
 			</ArrayItems>
 		</Expand>

@@ -17,7 +17,19 @@ More information at: https://docs.microsoft.com/en-us/visualstudio/debugger/just
 
 <StepFilter xmlns="http://schemas.microsoft.com/vstudio/debugger/natstepfilter/2010">
     <Function>
-        <Name>(DS_Array)::.+</Name>
+        <Name>(DS_Array&lt;.*&gt;)::operator.*</Name>
         <Action>NoStepInto</Action>
     </Function>
+	<Function>
+		<Name>(DS_Slice&lt;.*&gt;)::operator.*</Name>
+		<Action>NoStepInto</Action>
+	</Function>
+	<Function>
+		<Name>(DS_String)::operator.*</Name>
+		<Action>NoStepInto</Action>
+	</Function>
+	<Function>
+		<Name>(DS_DynamicString)::operator.*</Name>
+		<Action>NoStepInto</Action>
+	</Function>
 </StepFilter>

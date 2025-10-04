@@ -152,7 +152,7 @@ DS_String DS_String::Slice(intptr_t from, intptr_t to)
 	return DS_String(Data + from, to - from);
 }
 
-DS_String DS_String::Clone(DS_Arena* arena) const {
+DS_String DS_String::Clone(DS_StackAllocator* arena) const {
 	DS_String result;
 	result.Data = arena->PushUninitialized(Size + 1);
 	result.Size = Size;
@@ -161,19 +161,19 @@ DS_String DS_String::Clone(DS_Arena* arena) const {
 	return result;
 }
 
-char* DS_String::ToCStr(DS_Arena* arena) const {
-	return Clone(arena).CStr();
+char* DS_String::ToCStr(DS_StackAllocator* arena) const {
+	return Clone(arena).Data;
 }
 
-void DS_Arena::Init(DS_Allocator* backing_allocator, void* initial_block, uint32_t block_size, uint32_t block_alignment)
+void DS_StackAllocator::Init(DS_Allocator* backing_allocator, void* initial_block, uint32_t block_size, uint32_t block_alignment)
 {
 	BackingAllocator = backing_allocator ? backing_allocator : DS_HeapAllocator();
-	FirstBlock = (DS_ArenaBlockHeader*)initial_block;
+	FirstBlock = (DS_StackBlockHeader*)initial_block;
 	Mark.Block = FirstBlock;
 	Mark.Ptr = NULL;
 	BlockSize = block_size;
 	BlockAlignment = block_alignment;
-	AllocatorFunc = DS_ArenaAllocatorFunction;
+	AllocatorFunc = DS_StackAllocatorFunction;
 #ifdef DS_ARENA_MEMORY_TRACKING
 	total_mem_reserved = 0;
 #endif
@@ -181,39 +181,39 @@ void DS_Arena::Init(DS_Allocator* backing_allocator, void* initial_block, uint32
 	if (initial_block)
 	{
 		DS_ASSERT(((uintptr_t)initial_block & ((uintptr_t)block_alignment - 1)) == 0); // make sure that the alignment is correct
-		DS_ArenaBlockHeader* header = (DS_ArenaBlockHeader*)initial_block;
+		DS_StackBlockHeader* header = (DS_StackBlockHeader*)initial_block;
 		header->AllocatedFromBackingAllocator = false;
 		header->SizeIncludingHeader = block_size;
 		header->Next = NULL;
-		Mark.Ptr = (char*)FirstBlock + sizeof(DS_ArenaBlockHeader);
+		Mark.Ptr = (char*)FirstBlock + sizeof(DS_StackBlockHeader);
 #ifdef DS_ARENA_MEMORY_TRACKING
 		total_mem_reserved += block_size;
 #endif
 	}
 }
 
-void DS_Arena::Deinit()
+void DS_StackAllocator::Deinit()
 {
-	for (DS_ArenaBlockHeader* block = FirstBlock; block;)
+	for (DS_StackBlockHeader* block = FirstBlock; block;)
 	{
-		DS_ArenaBlockHeader* next = block->Next;
+		DS_StackBlockHeader* next = block->Next;
 		if (block->AllocatedFromBackingAllocator)
 			BackingAllocator->MemFree(block);
 		block = next;
 	}
 
 #ifndef DS_NO_DEBUG_CHECKS
-	memset(this, 0xCC, sizeof(DS_Arena));
+	memset(this, 0xCC, sizeof(DS_StackAllocator));
 #endif
 }
 
-char* DS_Arena::PushUninitialized(size_t size, size_t alignment)
+char* DS_StackAllocator::PushUninitialized(size_t size, size_t alignment)
 {
 	bool alignment_is_power_of_2 = ((alignment) & ((alignment)-1)) == 0;
 	DS_ASSERT(alignment != 0 && alignment_is_power_of_2);
 	DS_ASSERT(alignment <= BlockAlignment);
 
-	DS_ArenaBlockHeader* curr_block = Mark.Block; // may be NULL
+	DS_StackBlockHeader* curr_block = Mark.Block; // may be NULL
 	void* curr_ptr = Mark.Ptr;
 
 	char* result = (char*)DS_AlignUpPow2((intptr_t)curr_ptr, alignment);
@@ -222,12 +222,12 @@ char* DS_Arena::PushUninitialized(size_t size, size_t alignment)
 	if ((intptr_t)size > remaining_space)
 	{
 		// We need a new block
-		intptr_t result_offset = DS_AlignUpPow2(sizeof(DS_ArenaBlockHeader), alignment);
+		intptr_t result_offset = DS_AlignUpPow2(sizeof(DS_StackBlockHeader), alignment);
 		intptr_t new_block_size = result_offset + size;
 		if ((intptr_t)BlockSize > new_block_size) new_block_size = BlockSize;
 
-		DS_ArenaBlockHeader* new_block = NULL;
-		DS_ArenaBlockHeader* next_block = NULL;
+		DS_StackBlockHeader* new_block = NULL;
+		DS_StackBlockHeader* next_block = NULL;
 
 		// If there is a block at the end of the list that we have used previously, but aren't using anymore, then try to start using that one.
 		if (curr_block && curr_block->Next)
@@ -243,7 +243,7 @@ char* DS_Arena::PushUninitialized(size_t size, size_t alignment)
 		// Otherwise, insert a new block.
 		if (new_block == NULL)
 		{
-			new_block = (DS_ArenaBlockHeader*)BackingAllocator->MemAlloc(new_block_size, BlockAlignment);
+			new_block = (DS_StackBlockHeader*)BackingAllocator->MemAlloc(new_block_size, BlockAlignment);
 			DS_ASSERT(((uintptr_t)new_block & ((uintptr_t)BlockAlignment - 1)) == 0); // make sure that the alignment is correct
 
 			new_block->AllocatedFromBackingAllocator = true;
@@ -264,13 +264,13 @@ char* DS_Arena::PushUninitialized(size_t size, size_t alignment)
 	return result;
 }
 
-void DS_Arena::Reset()
+void DS_StackAllocator::Reset()
 {
 	if (FirstBlock) {
 		// Free all blocks after the first block
-		for (DS_ArenaBlockHeader* block = FirstBlock->Next; block;)
+		for (DS_StackBlockHeader* block = FirstBlock->Next; block;)
 		{
-			DS_ArenaBlockHeader* next = block->Next;
+			DS_StackBlockHeader* next = block->Next;
 #ifdef DS_ARENA_MEMORY_TRACKING
 			total_mem_reserved -= block->size_including_header;
 #endif
@@ -292,18 +292,18 @@ void DS_Arena::Reset()
 	}
 
 	Mark.Block = FirstBlock;
-	Mark.Ptr = (char*)FirstBlock + sizeof(DS_ArenaBlockHeader);
+	Mark.Ptr = (char*)FirstBlock + sizeof(DS_StackBlockHeader);
 }
 
-DS_ArenaMark DS_Arena::GetMark() {
+DS_StackMark DS_StackAllocator::GetMark() {
 	return Mark;
 }
 
-void DS_Arena::SetMark(DS_ArenaMark mark)
+void DS_StackAllocator::SetMark(DS_StackMark mark)
 {
 	if (mark.Block == NULL) {
 		Mark.Block = FirstBlock;
-		Mark.Ptr = (char*)FirstBlock + sizeof(DS_ArenaBlockHeader);
+		Mark.Ptr = (char*)FirstBlock + sizeof(DS_StackBlockHeader);
 	}
 	else {
 		Mark = mark;

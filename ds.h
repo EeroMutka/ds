@@ -3,7 +3,7 @@
 //
 // - Dynamic array
 // - Hash map, set
-// - Allocator API, arena allocator
+// - Allocator API, stack allocator
 // - String, string view
 // 
 // This code is released under the MIT license (https://opensource.org/licenses/MIT).
@@ -65,24 +65,24 @@ static DS_Allocator* DS_HeapAllocator() {
 }
 #endif
 
-struct DS_ArenaBlockHeader
+struct DS_StackBlockHeader
 {
 	uint32_t SizeIncludingHeader;
 	bool AllocatedFromBackingAllocator;
-	DS_ArenaBlockHeader* Next; // may be NULL
+	DS_StackBlockHeader* Next; // may be NULL
 };
 
-struct DS_ArenaMark
+struct DS_StackMark
 {
-	DS_ArenaBlockHeader* Block; // If the arena has no blocks allocated yet, then we mark the beginning of the arena by setting this member to NULL.
+	DS_StackBlockHeader* Block; // If the stack has no blocks allocated yet, then we mark the beginning of the stack by setting this member to null.
 	char* Ptr;
 };
 
-struct DS_Arena : DS_Allocator
+struct DS_StackAllocator : DS_Allocator
 {
 	DS_Allocator* BackingAllocator;
-	DS_ArenaBlockHeader* FirstBlock; // may be NULL
-	DS_ArenaMark Mark;
+	DS_StackBlockHeader* FirstBlock; // may be NULL
+	DS_StackMark Mark;
 	uint32_t BlockSize;
 	uint32_t BlockAlignment;
 
@@ -98,8 +98,8 @@ struct DS_Arena : DS_Allocator
 	
 	char* PushUninitialized(size_t size, size_t alignment = 1);
 	
-	DS_ArenaMark GetMark();
-	void SetMark(DS_ArenaMark mark);
+	DS_StackMark GetMark();
+	void SetMark(DS_StackMark mark);
 	void Reset();
 	
 	template<typename T>
@@ -124,7 +124,7 @@ struct DS_Arena : DS_Allocator
 		return result;
 	}
 
-	inline const char* CloneStr(const char* src)
+	inline char* CloneStr(const char* src)
 	{
 		size_t len = strlen(src);
 		char* result = PushUninitialized(len + 1, 1);
@@ -134,12 +134,14 @@ struct DS_Arena : DS_Allocator
 };
 
 template<uint32_t STACK_BUFFER_SIZE>
-struct DS_ScopedArena : DS_Arena
+struct DS_ScopedAllocator : DS_StackAllocator
 {
 	alignas(16) char StackBuffer[STACK_BUFFER_SIZE];
 
-	inline DS_ScopedArena()  { Init(NULL, StackBuffer, STACK_BUFFER_SIZE); }
-	inline ~DS_ScopedArena() { Deinit(); }
+	inline DS_ScopedAllocator()  { Init(NULL, StackBuffer, STACK_BUFFER_SIZE); }
+	inline ~DS_ScopedAllocator() { Deinit(); }
+	inline DS_ScopedAllocator(const DS_ScopedAllocator& other) = delete;
+	inline DS_ScopedAllocator operator=(const DS_ScopedAllocator& other) = delete;
 };
 
 // -- Array, Slice ------------------------------------------------------------
@@ -157,8 +159,8 @@ struct DS_Array
 
 	// ------------------------------------------------------------------------
 
-	// If the arena is NULL, the stored allocator is set to NULL and you must call Init() before use
-	inline DS_Array<T>(DS_Arena* arena = NULL, int32_t initial_capacity = 0);
+	// If the stack is NULL, the stored allocator is set to NULL and you must call Init() before use
+	inline DS_Array<T>(DS_StackAllocator* stack = NULL, int32_t initial_capacity = 0);
 
 	// If allocator is NULL, the heap allocator is used.
 	inline void Init(DS_Allocator* allocator = NULL, int32_t initial_capacity = 0);
@@ -178,7 +180,7 @@ struct DS_Array
 	
 	inline void Insert(int32_t at, const T& value, int n = 1);
 
-	inline T& Remove(int32_t index, int n = 1);
+	inline void Remove(int32_t index, int n = 1);
 	
 	inline T& PopBack(int n = 1);
 	
@@ -268,9 +270,9 @@ struct DS_String
 	DS_String Slice(intptr_t from, intptr_t to = INTPTR_MAX);
 
 	// Clone() returns a null-terminated string
-	DS_String Clone(DS_Arena* arena) const;
+	DS_String Clone(DS_StackAllocator* stack) const;
 
-	char* ToCStr(DS_Arena* arena) const;
+	char* ToCStr(DS_StackAllocator* stack) const;
 	
 	// ------------------------------------------------------------------------
 
@@ -300,6 +302,7 @@ static inline DS_String operator ""_ds(const char* data, size_t size)
 	return DS_String(data, size);
 }
 
+// A dynamic string type. Always null-terminated.
 struct DS_DynamicString : public DS_String
 {
 	intptr_t Capacity;
@@ -307,8 +310,8 @@ struct DS_DynamicString : public DS_String
 
 	// ------------------------------------------------------------------------
 
-	// If the arena is NULL, the stored allocator is set to NULL and you must call Init() before use
-	inline DS_DynamicString(DS_Arena* arena = NULL, intptr_t initial_capacity = 0);
+	// If the stack is NULL, the stored allocator is set to NULL and you must call Init() before use
+	inline DS_DynamicString(DS_StackAllocator* stack = NULL, intptr_t initial_capacity = 0);
 
 	// If allocator is NULL, the heap allocator is used.
 	inline void Init(DS_Allocator* allocator = NULL, intptr_t initial_capacity = 0);
@@ -318,9 +321,11 @@ struct DS_DynamicString : public DS_String
 	inline void Reserve(intptr_t reserve_size);
 	
 	inline void Add(DS_String str);
+	
+	inline void RemoveFromEnd(intptr_t amount);
 
 	// DS_DynamicString is always null-terminated.
-	inline char* CStr() const { return Data; }
+	inline operator const char* () const { return Data; }
 	
 #ifndef DS_NO_PRINTF
 	inline void Addf(const char* fmt, ...);
@@ -451,21 +456,21 @@ inline void DS_Allocator::MemFree(void* data) {
 	AllocatorFunc(this, data, 0, 0, 1);
 }
 
-static void* DS_ArenaAllocatorFunction(DS_Allocator* self, void* old_data, size_t old_size, size_t size, size_t alignment)
+static void* DS_StackAllocatorFunction(DS_Allocator* self, void* old_data, size_t old_size, size_t size, size_t alignment)
 {
-	char* data = static_cast<DS_Arena*>(self)->PushUninitialized(size, alignment);
+	char* data = static_cast<DS_StackAllocator*>(self)->PushUninitialized(size, alignment);
 	if (old_data)
 		memcpy(data, old_data, old_size);
 	return data;
 }
 
 template<typename T>
-inline DS_Array<T>::DS_Array(DS_Arena* arena, int32_t initial_capacity)
+inline DS_Array<T>::DS_Array(DS_StackAllocator* stack, int32_t initial_capacity)
 {
 	Capacity = 0;
 	Data = NULL;
 	Size = 0;
-	Allocator = arena;
+	Allocator = stack;
 	
 	if (initial_capacity > 0)
 		Reserve(initial_capacity);
@@ -542,6 +547,7 @@ inline void DS_Array<T>::Resize(int32_t new_count, const T& default_value)
 		for (int i = Size; i < new_count; i++)
 			Data[i] = default_value;
 	}
+	Size = new_count;
 }
 
 template<typename T>
@@ -577,7 +583,7 @@ inline void DS_Array<T>::Insert(int32_t at, const T& value, int n)
 }
 
 template<typename T>
-inline T& DS_Array<T>::Remove(int32_t index, int n)
+inline void DS_Array<T>::Remove(int32_t index, int n)
 {
 	DS_ASSERT(index + n <= Size);
 
@@ -612,12 +618,12 @@ inline void DS_Array<T>::ReverseOrder()
 	}
 }
 
-inline DS_DynamicString::DS_DynamicString(DS_Arena* arena, intptr_t initial_capacity)
+inline DS_DynamicString::DS_DynamicString(DS_StackAllocator* stack, intptr_t initial_capacity)
 {
 	Capacity = 0;
 	Data = NULL;
 	Size = 0;
-	Allocator = arena;
+	Allocator = stack;
 
 	if (initial_capacity > 0)
 		Reserve(initial_capacity);
@@ -665,6 +671,13 @@ inline void DS_DynamicString::Add(DS_String str)
 	Reserve(Size + str.Size + 1);
 	memcpy(Data + Size, str.Data, str.Size);
 	Size += str.Size;
+	Data[Size] = 0;
+}
+
+inline void DS_DynamicString::RemoveFromEnd(intptr_t amount)
+{
+	DS_ASSERT(Size >= amount);
+	Size -= amount;
 	Data[Size] = 0;
 }
 
